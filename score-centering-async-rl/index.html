@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Beyond Score Centering: What Else Can We Optimize in Async RL?</title>
+<meta name="description" content="Score centering in async RL: what it fixes, what it leaves, a state-level KL mask, and buffer sampling.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Sans:wght@500&display=swap">
+<script>
+  window.MathJax = { tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] }, svg: { fontCache: 'global' } };
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+  /* FrontierCS 2 skin: white paper, Material 3 blue, hairline rules, Hanken Grotesk. One light look, as on the site. */
+  :root {
+    --paper: #ffffff; --soft: #f1f3f4; --ink: #1f1f1f; --ink-2: #3c4043; --muted: #5f6368; --faint: #9aa0a6;
+    --rule: #dadce0; --grid: #eceff1; --accent: #0b57d0; --accent-soft: #d3e3fd; --link-line: rgba(11, 87, 208, .35);
+    --draft: #b3261e; --draft-soft: #fce8e6;
+    --sans: 'Hanken Grotesk', 'Helvetica Neue', Arial, sans-serif;
+    --code: ui-monospace, Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 18.5px; line-height: 1.65;
+         -webkit-font-smoothing: antialiased; margin: 0; }
+  .wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .topbar { border-bottom: 1px solid var(--rule); }
+  .topbar .in { max-width: 1040px; margin: 0 auto; padding-block: 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { font: 500 18px/1 'Instrument Sans', var(--sans); letter-spacing: -.01em; display: inline-flex; gap: 8px; align-items: center; }
+  .brand svg { width: 14px; height: 14px; }
+  .crumbs { font-size: 14px; color: var(--muted); }
+  article { max-width: 1040px; margin: 0 auto; padding-block: 48px 72px; }
+  .col { max-width: 880px; margin-inline: auto; }
+  .tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .pill { font-size: 13px; font-weight: 500; padding: 3px 11px; border-radius: 999px; background: var(--soft); color: var(--ink-2); }
+  .pill.draft { background: var(--draft-soft); color: var(--draft); }
+  h1 { font-size: clamp(32px, 5vw, 46px); line-height: 1.12; font-weight: 600; letter-spacing: -.02em; margin: 0 0 16px; text-wrap: balance; }
+  .dek { color: var(--ink-2); margin: 0 0 28px; }
+  h2 { font-size: 27px; font-weight: 600; letter-spacing: -.01em; line-height: 1.2; margin: 64px 0 14px; text-wrap: balance; scroll-margin-top: 24px; }
+  h2 .n { color: var(--accent); margin-right: 10px; }
+  h3 { font-size: 19px; font-weight: 600; margin: 32px 0 8px; }
+  p { margin: 0 0 16px; }
+  a { color: var(--accent); text-decoration: underline; text-decoration-color: var(--link-line); text-underline-offset: 3px; }
+  b, strong { font-weight: 600; }
+  code { font-family: var(--code); font-size: .86em; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+  .note { border-left: 3px solid var(--draft); background: var(--draft-soft); padding: 10px 14px; font-size: 15px; color: var(--ink-2); margin: 0 0 18px; border-radius: 0 6px 6px 0; }
+  /* All figures are drawn 7.2 in wide and shown at one width, so figure text has one size on the whole page. */
+  figure { max-width: 880px; margin: 40px auto 44px; }
+  figure { position: relative; scroll-margin-top: 24px; }
+  .side { display: block; font-size: 14.5px; line-height: 1.5; color: var(--muted); margin: 0 0 10px; padding-left: 12px; border-left: 2px solid var(--rule); }
+  @media (min-width: 1400px) {
+    .side { position: absolute; top: 40px; right: calc(100% + 36px); width: 210px; margin: 0; padding: 10px 0 0; border-left: 0; border-top: 1px solid var(--rule); text-align: left; }
+    .side::after { content: ""; position: absolute; top: -1px; left: 100%; width: 36px; border-top: 1px solid var(--rule); }
+  }
+  figure .img { overflow-x: auto; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding-block: 18px; }
+  figure img { display: block; width: 100%; min-width: 600px; height: auto; }
+  figcaption { margin: 12px auto 0; font-size: 15.5px; line-height: 1.55; color: var(--muted); max-width: 880px; }
+  figcaption b { color: var(--ink); }
+  @media (max-width: 640px) { figure .img { padding-block: 12px; } }
+  .math { overflow-x: auto; margin: 4px 0 18px; }
+  mjx-container[display="true"] { margin: 10px 0 !important; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .tbl { overflow-x: auto; margin: 8px 0 22px; }
+  th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { font-weight: 600; border-bottom: 1px solid var(--rule); color: var(--ink-2); font-size: 13.5px; }
+  th:first-child, td:first-child { text-align: left; }
+  tr.hl td { color: var(--accent); font-weight: 600; }
+  ol.points { padding-left: 22px; margin: 0 0 16px; } ol.points li { margin-bottom: 6px; }
+  ul.points { padding-left: 20px; margin: 0 0 16px; } ul.points li { margin-bottom: 6px; }
+  .sources { border-top: 1px solid var(--rule); margin-top: 64px; padding-top: 20px; font-size: 14.5px; color: var(--muted); }
+  .sources h2 { font-size: 17px; margin: 0 0 8px; }
+  .sources ul { padding-left: 18px; margin: 0; } .sources li { margin-bottom: 4px; }
+  @media (max-width: 560px) { body { font-size: 17px; } h2 { font-size: 23px; margin-top: 48px; } }
+  li .key { display: block; margin: 4px 0 8px; }
+  .fn { display: block; font-size: 15px; line-height: 1.55; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 10px; }
+  sup { font-size: .7em; line-height: 0; }
+  .key { background: var(--accent-soft); border-left: 3px solid var(--accent); padding: 12px 16px; border-radius: 0 8px 8px 0; font-weight: 500; }
+  .l-zh { display: none; }
+  html[data-lang="zh"] .l-zh { display: revert; }
+  html[data-lang="zh"] .l-en { display: none; }
+  .l-zh, .l-zh * { font-family: 'Hanken Grotesk', 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; }
+  h1 .l-zh, h2 .l-zh { letter-spacing: 0; }
+  .langbtn { font: 500 13.5px var(--sans); border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); border-radius: 999px; padding: 5px 14px; cursor: pointer; }
+  .langbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .topbar .right { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+  .byline { margin: 4px 0 26px; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
+  .byline .authors { display: block; font-weight: 600; color: var(--ink); }
+  .byline .aff { display: block; font-size: 14.5px; color: var(--muted); }
+  .byline sup { font-size: .7em; } .byline a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--rule); } .byline a:hover { color: var(--accent); }
+  ol.refs { padding-left: 24px; margin: 0 0 16px; font-size: 15.5px; line-height: 1.55; color: var(--ink-2); } ol.refs li { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<header class="topbar wrap">
+  <div class="in">
+    <span class="right"><span class="crumbs">Blog / Score centering</span></span>
+  </div>
+</header>
+
+<article class="wrap">
+  <div class="col">
+    <h1><span>Beyond Score Centering: What Else Can We Optimize In Async RL?</span></h1>
+    <p class="byline"><span class="authors"><a href="https://joyemang33.github.io">Qiuyang Mang</a><sup>*</sup>, <a href="https://yichuan-w.github.io">Yichuan Wang</a><sup>*</sup></span><span class="aff"><sup>*</sup>Equal contribution · UC Berkeley</span></p>
+    <div class="dek"><div><a href="https://arxiv.org/abs/2609.20807">Score centering (SC)</a> has recently drawn wide attention in LLM RL. In async RL the sampler and the trainer hold different weights, so the trajectories the trainer learns from often come from a policy several steps old, which easily makes training unstable. SC's fix is simple: subtract from each token's score its expectation under the sampler, which cancels the drift that the old policy brings in. This post uses experiments to explain the core idea of SC and how it works. Beyond SC itself and the tricks widely discussed alongside it, we follow the same idea to revisit other key components of async RL and make training more stable and efficient. At the end we present two findings that, with SC and the KL penalty on, further improve training quality and stability markedly: (1) replacing the mask based on token-level probability ratios with a mask based on state-level KL divergence; (2) switching how the trainer draws trajectories from the buffer from greedy to random sampling.</div></div>
+    <div><p>First, some notation. In async RL the sampler \(\mu\) and the trainer \(\pi\) are decoupled: the sampler generates trajectories with the weights it holds, and the trainer takes optimizer steps on that data while it keeps updating. If a trajectory reaches the trainer at step \(k\) and was sampled by \(\mu = \pi_{\theta_{k-\mathrm{a}}}\), we say its policy age is \(\mathrm{a}\), i.e. the trainer is now computing gradients on data from a policy \(\mathrm{a}\) steps old.</p></div>
+    <h2 id="sec1"><span class="n">1</span><span>Why Do Old Trajectories Dominate The Update In Async RL?</span></h2>
+    <div><p>Rather than starting with theory and notation, let us first look at what happens when trajectories of different ages reach the trainer. An interesting finding is that without SC, a trajectory's policy-gradient norm grows roughly linearly with its age, while with SC this trend is well suppressed.</p>
+    <p>The former is clearly bad. In principle, a token's influence on the policy update should depend roughly only on its advantage and otherwise be treated equally; in some settings one may even want to weaken the influence of very old trajectories. Here instead, the older a trajectory, the more it dominates the gradient update. We discuss the bias introduced by stale trajectories later, but even from a training stability perspective alone, the large differences in gradient norms across samples can already destabilize training.</p></div>
+  </div>
+
+  <figure id="fig1">
+    <aside class="side"><span>At age 0 the sampler holds the same weights as the trainer, but in bf16 the inference engine and the trainer still compute slightly different probabilities (training–inference mismatch), so the drift is not exactly zero.</span></aside>
+    <div class="img"><img src="fig/fig3_profile.svg" alt="Left: median gradient norm grows from 1.56 to 5.05 with age for PG, but only to 2.40 for SC. Middle: drift share of the PG gradient rises from 0.09 to 0.86. Right: per-token KL grows from 0.0005 to 0.104."></div>
+    <figcaption><span><b>Figure 1. Gradient profile by policy age.</b> Task: <a href="https://arxiv.org/abs/2404.03683">Countdown</a>; model: Qwen3-0.6B, trained at staleness 64. At steps 200, 400 and 600, checkpoints of age 0 to 64 each sample 8 completions for the same 64 prompts, and each trajectory's gradient is evaluated at the current weights. Left: median gradient norm. Middle: drift share of the PG gradient, \(\|g_{\mathrm{PG}} - g_{\mathrm{SC}}\| / \|g_{\mathrm{PG}}\|\), where the drift is the part of the PG gradient that SC removes (derived below). Right: per-token sampler–trainer KL.</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <div><p>The figure above naturally raises two questions: why does the gradient grow linearly with age without SC, and how does SC flatten that line? To answer them, we go back to the policy gradient itself. On-policy, the gradient of the objective is
+\[
+\nabla J = \mathbb{E}_{a\sim\pi}\big[A\,\nabla\log\pi(a)\big].
+\]
+Under async, samples come from the sampler \(\mu\), and the trainer actually computes
+\[
+\mathbb{E}_{a\sim\mu}\big[A\,\nabla\log\pi(a)\big].
+\]
+To make this easy to see, we work in the logit space of a single token. Write \(e_a\) for the one-hot vector of \(a\) and \(p = \pi_{\theta_k}(\cdot\mid s)\). Under a softmax, \(\nabla_z\log\pi(a) = e_a - p\), so the PG gradient for one sampled token is
+\[
+g_{\mathrm{PG}} = A\,(e_a - p).
+\]
+But \(a\) was drawn by the sampler, so we take the expectation over the sampler with \(A\) inside. Write \(q = \mu(\cdot\mid s)\) and note that \(\mathbb{E}_{a\sim\mu}[e_a] = q\). Then
+\[
+\mathbb{E}_{a\sim\mu}\big[A\,(e_a - p)\big]
+= \underbrace{\mathbb{E}_{a\sim\mu}\big[A\,(e_a - q)\big]}_{\text{signal}}
+\;+\; \underbrace{\mathbb{E}_{a\sim\mu}[A]\,(q - p)}_{\text{drift}} .
+\]
+The signal term does not depend on the gap between the two policies, while the norm of the drift term grows linearly with that gap. The gap itself grows roughly linearly with age: every trainer step moves the policy by about \(\delta\) in a similar direction, so at age \(\mathrm{a}\)
+\[
+\lVert q - p\rVert \approx \mathrm{a}\,\lVert\delta\rVert ,
+\]
+and the drift term grows linearly in \(\mathrm{a}\). Even if the trainer were doing a random walk, the gap would still grow as \(\sqrt{\mathrm{a}}\), which is more than enough to wreck training stability. This explains what we observe.</p>
+    <p>It is worth adding that, as several earlier blogs point out (for example <a href="https://normaluhr.github.io/en/p/score-function-centering/">this one</a>), the drift term of the policy gradient, mapped back to the objective, adds a term to the on-policy objective being maximized:
+\[
+-A\,D_{\mathrm{KL}}(\mu\|\pi)
+\]
+So far we argued for removing the drift from the standpoint of training stability. Another reading is that it hands the trainer a KL loss whose strength we do not control, which is not a desirable objective; we come back to this later.</p>
+    <p>This form also restores some good properties of the on-policy version, such as subtracting a constant baseline leaving the expected policy gradient unchanged; we do not dwell on them here.<sup>1</sup></p>
+    <p><span class="fn"><sup>1</sup> For a constant baseline \(c\), \(\mathbb{E}_{a\sim\mu}\big[c\,(e_a - q)\big] = c\,(q - q) = 0\), so subtracting it leaves the expected SC gradient unchanged; without centering, \(\mathbb{E}_{a\sim\mu}\big[c\,(e_a - p)\big] = c\,(q - p) \neq 0\). A fuller derivation is in <a href="https://yichuan-w.github.io/asset/talks/rl-reinforce-to-score-centering.html#7">these slides</a>.</span></p></div>
+  </div>
+
+  <figure id="fig2">
+    <div class="img"><img src="fig/fig4_grad_age.svg" alt="Three rows of box plots of per-trajectory gradient norm against policy age, at steps 200, 400 and 600 and pooled: PG rises with age, SC stays flat, and the drift, PG minus SC, starts near zero at age 0 and rises steadily."></div>
+    <figcaption><span><b>Figure 2. Distribution of per-trajectory gradient norms.</b> Same data as Figure 1. Rows: PG, SC and the drift (PG − SC). Columns: steps 200, 400, 600 and pooled. The x-axis is the policy age of the trajectory. The y-axis (log scale) is the L2 norm, over all model parameters, of one trajectory's loss gradient at the current weights, with the loss divided by the batch's completion tokens and no gradient clipping. Each box covers the 25th to 75th percentile of the trajectories at that age, with a line at the median; whiskers reach 1.5 times the interquartile range. Trajectories with zero advantage are left out.</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <h2 id="sec2"><span class="n">2</span><span>What SC Solves, And What Is Left To Solve</span></h2>
+    <div><p>With that motivation, SC simply removes the drift term: in policy-gradient space it subtracts
+\[
+\mathbb{E}_{a\sim\mu}[A]\,\mathbb{E}_{a\sim\mu}[\nabla\log\pi(a)] ,
+\]
+and it is natural that the gradient norm under SC shows no clear correlation with age.</p>
+    <p>After SC, what on-policy actually wants and the gradient we actually compute are, respectively,
+\[
+g_{\mathrm{PG}} = \mathbb{E}_{a\sim\pi}\big[A\,(e_a - p)\big], \quad g_{\mathrm{SC}} = \mathbb{E}_{a\sim\mu}\big[A\,(e_a - q)\big].
+\]
+The Jacobian behind them is the same, so the difference between the two depends only on the gap between \(p\) and \(q\) (token level) and between \(\pi\) and \(\mu\) (policy level).</p>
+    <p class="key">This suggests that any method that starts from the gap between \(\mu\) and \(\pi\) may be a good way to improve further on top of SC.</p></div>
+    <h2 id="sec3"><span class="n">3</span><span>What Should We Do On Top Of SC?</span></h2>
+    <div><p>So what is not a good method? SC combined with importance sampling (IS), we suspect.</p>
+    <p>Doing SC first and then IS is clearly off. Ignoring truncation, the gradient for one token is \(\tfrac{p(a)}{q(a)}\,A\,(e_a - q)\). Taking the expectation over the sampler, the IS ratio first moves the distribution back to \(\pi\):
+\[
+\mathbb{E}_{a\sim\mu}\Big[\tfrac{p(a)}{q(a)}\,A\,(e_a - q)\Big]
+= \underbrace{\mathbb{E}_{a\sim\pi}\big[A\,(e_a - p)\big]}_{\text{on-policy}}
+\;+\; \underbrace{\mathbb{E}_{a\sim\pi}[A]\,(p - q)}_{\text{new drift}} .
+\]
+This does nothing to shrink the gap between \(p\) and \(q\); it introduces a new drift instead.</p>
+    <p>What if we do IS first and then SC, as <a href="https://arxiv.org/abs/2609.20807">the original paper</a> describes: use IS to move the distribution on-policy, then apply SC? Without truncation and with exact IS, this is pointless. After IS the expectation is already under \(\pi\), where the score is centered at \(p\),
+\[
+\mathbb{E}_{a\sim\mu}\Big[\tfrac{p(a)}{q(a)}\,A\,(e_a - p)\Big] = \mathbb{E}_{a\sim\pi}\big[A\,(e_a - p)\big],
+\]
+so SC does nothing: what it subtracts already has zero expectation under \(\pi\).</p>
+    <p>With truncation, write the post-IS weight as \(w(a) = f\big(p(a)/q(a)\big)\). SC is then effectively applied on a new distribution
+\[
+\nu(a) = \frac{w(a)\,q(a)}{Z},\qquad Z = \sum_{a} w(a)\,q(a),
+\]
+where \(f(\cdot)\) is the processing after IS, such as the truncation in the paper. The score is then centered at \(\nu\), and the expected gradient becomes
+\[
+\mathbb{E}_{a\sim\mu}\big[w(a)\,A\,(e_a - \nu)\big] = Z\,\mathrm{Cov}_\nu(A,\, e_a).
+\]
+Clearly, there is no guarantee whether this new distribution or the plain \(\mu\) is closer to the target \(\pi\). It is a rather ill-defined operation.</p></div>
+    <div><p>So what is a good method? <a href="https://normaluhr.github.io/en/p/score-function-centering-kl/">Yihua's blog</a> has one that follows this design principle:
+\[
+\mathcal{L}_{\mathrm{SC}} \;-\; \beta_{\mathrm{a}}\,D_{\mathrm{KL}}(\mu\,\|\,\pi),\qquad \beta_{\mathrm{a}} = \frac{\beta_0}{\sqrt{\mathrm{a}}} ,
+\]
+where \(\mathcal{L}_{\mathrm{SC}}\) is the objective after SC. It first removes the whole drift term with SC, then explicitly adds back a KL penalty that pulls the trainer toward the sampler that generated each token. This shrinks the gap between the two distributions and, with it, the bias of the policy gradient after SC.</p>
+    <p>Note that, unlike the implicit \(-A\,D_{\mathrm{KL}}(\mu\|\pi)\) in PG, the coefficient here is always positive and independent of the advantage. It is a controllable knob that helps us reduce the discrepancy caused by the difference between the two distributions.</p>
+    <p>One more point: why give the new KL penalty a mysterious coefficient proportional to \(\frac{1}{\sqrt{\mathrm{a}}}\)? Recall that the gradient of the KL penalty is troublesome because it gives trajectories of different ages an unbalanced influence on the batch. If every update step were fully independent, the norm of the KL term would grow as \(\sqrt{\mathrm{a}}\). Later in training, however, consecutive updates point in more and more consistent directions: the gap between an old policy and the current one looks more like steps stacking up along one line, and the norm grows closer to \(\mathrm{a}\) (Figure 3). So \(\beta_{\mathrm{a}}\) can decay over the course of training,
+\[
+\beta_{\mathrm{a}} = \frac{\beta_0}{\sqrt{\mathrm{a}}} \;\longrightarrow\; \frac{\beta_0}{\mathrm{a}} ,
+\]
+further reducing the influence of very old policies on the KL penalty.</p></div>
+  </div>
+
+  <figure id="fig3">
+    <div class="img"><img src="fig/fig_kl_age.svg" alt=""></div>
+    <figcaption><span><b>Figure 3. Summing \(\mathrm{a}\) update steps.</b> Schematic with \(\mathrm{a} = 3\) unit steps \(v_1, v_2, v_3\). Left: the steps are mutually orthogonal (independent steps in high dimensions are nearly orthogonal), and the sum has norm \(\sqrt{\mathrm{a}}\). Right: every step points the same way, and the sum has norm \(\mathrm{a}\).</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <h2 id="sec4"><span class="n">4</span><span>What Kind Of Mask Do We Actually Need?</span></h2>
+    <div><p>We saw above that combining SC with IS does not make much sense. So why do combinations such as SC + TIS and SC + MIS still help stabilize training in many experiments?</p>
+    <p>The reason is simple: the masking or truncation these combinations carry on top of IS also happens to restrict updates at token positions where \(p\) and \(q\) differ a lot. They use \(\frac{\pi(a\mid s)}{\mu(a\mid s)}\) as a surrogate to decide whether to restrict an update.</p>
+    <p>Since we already know that bad updates happen when \(p\) and \(q\) differ too much, why take the long way round through the IS ratio to make this mask decision? A metric that follows the idea of SC more directly is the KL between the two distributions at each state \(s\):
+\[
+d(s) = D_{\mathrm{KL}}\big(\mu(\cdot\mid s)\,\|\,\pi(\cdot\mid s)\big) = \sum_{a} q(a)\,\log\frac{q(a)}{p(a)},
+\]
+and we keep only the positions with \(d(s) \le \tau\):
+\[
+g = \mathbb{1}\big[d(s) \le \tau\big]\; A\,(e_a - q).
+\]
+Although this metric does not consider the outer, policy-level layer, it looks at the full next-token distribution at each state, which is more information than the ratio of a single token.</p>
+    <p>It also preserves the good baseline property. For a ratio-based mask, write the per-token weight it puts on the gradient as \(\lambda(a)\): for example the truncated IS weight \(\min\big(\pi(a)/\mu(a),\,C\big)\) in TIS, or in MIS the IS weight \(\pi(a)/\mu(a)\) that is set to zero once the ratio leaves \([l, h]\). Either way \(\lambda(a)\) changes with the sampled token, so for a constant baseline \(c\),
+\[
+\mathbb{E}_{a\sim\mu}\big[\lambda(a)\,c\,(e_a - q)\big] = c\,\Big(\mathbb{E}_{a\sim\mu}\big[\lambda(a)\,e_a\big] - \mathbb{E}_{a\sim\mu}\big[\lambda(a)\big]\,q\Big) \neq 0 ,
+\]
+whereas \(d(s)\) depends only on the state,
+\[
+\mathbb{E}_{a\sim\mu}\Big[\mathbb{1}\big[d(s)\le\tau\big]\,c\,(e_a - q)\Big] = \mathbb{1}\big[d(s)\le\tau\big]\,c\,(q - q) = 0 ,
+\]
+so the baseline property is fully preserved.</p></div>
+    <div><p>With \(d(s)\) in hand, we now put the KL mask side by side with TIS and MIS. First, what does the gradient profile look like with the KL mask? An interesting observation is that the KL mask does not know the age of each trajectory, yet the older a trajectory, the larger the gap between \(\mu\) and \(\pi\), the more easily \(d(s)\) exceeds the threshold, and so the more positions get masked. So without any help from IS, the KL mask flattens the profile: at \(\tau = 0.3\) it is even flatter than TIS + SC, and at \(\tau = 0.1\) the trend reverses and the influence of very old trajectories is weakened, which is exactly the effect we said one might want in some settings.</p></div>
+  </div>
+
+  <figure id="fig4">
+    <div class="img"><img src="fig/fig5_mask_profile.svg" alt="Left: median norm relative to age 0 for six methods. Right: age 64 to age 0 ratio, 3.24 for PG, 1.54 for SC, 1.34 for mask 1.0, 1.15 for TIS plus SC, 1.06 for mask 0.3, 0.74 for mask 0.1."></div>
+    <figcaption><span><b>Figure 4. Gradient profile with the KL mask.</b> Same data as Figure 1. Left: median gradient norm of each method relative to age 0. Right: the age-64 / age-0 ratio, with the fraction of tokens masked at age 64 in parentheses.</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <div><p>The profile is flat, but what about training? We first look at two settings where staleness is not too large. The first is the setting of the original SC paper, staleness 64: the sampler pulls new weights only once every 64 trainer steps, so the age of a batch climbs from 0 to 64 and then drops back to 0 at each sync. The second is a more common async setup: the sampler syncs weights every step, the buffer drops trajectories older than 32 steps, and the trainer takes the oldest ones first (greedy), so the batch age stays at about 31. In both settings SC alone either collapses or oscillates, while adding any one of TIS, the KL mask or the KL penalty on top of SC stabilizes training, and the final results are close.</p></div>
+  </div>
+
+  <figure id="fig5">
+    <aside class="side"><span>How the two settings differ: in the SC paper setting the sampler pulls new weights every 64 steps, so the age climbs from 0 to 64 and resets; in the common open-source setting weights sync every step and the trainer takes the oldest groups first, so the age stays near 31. <a href="#fig10">Figure 10</a> plots the batch age of both.</span></aside>
+    <div class="img"><img src="fig/fig6_results_grid.svg" alt="Final training accuracy for seven methods in two settings. SC plus KL penalty reaches 0.710 and 0.720; SC plus KL mask 0.3 0.716 and 0.726; TIS plus SC 0.734 and 0.701; SC collapses at staleness 64 and reaches 0.486 at age 31; PG and TIS collapse in both."></div>
+    <figcaption><span><b>Figure 5. Final training accuracy at small staleness.</b> Countdown, Qwen3-0.6B, SGD at learning rate \(10^{-2}\), 64 prompts × 8 completions per step, 1,200 steps, one seed per method. Left: the async setting of the SC paper, staleness 64. Right: the common open-source async RL setting, greedy (FIFO) sampling, batch age about 31. Bars: mean training accuracy over the last 50 steps.</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <div><p>The differences only show up at larger staleness. We enlarge the buffer to 128 steps so that every batch has age 127, and now TIS + SC and MIS + SC start to look off: two TIS + SC seeds drop sharply early on, and one MIS + SC seed falls straight to 0 midway through training, while all three seeds of the KL mask climb steadily. In final level the three are about the same; the real advantage of the KL mask is stability.</p></div>
+  </div>
+
+  <figure id="fig6">
+    <div class="img"><img src="fig/fig_mask_vs_is.svg" alt=""></div>
+    <figcaption><span><b>Figure 6. SC + KL mask against TIS + SC and MIS + SC.</b> Countdown, Qwen3-0.6B, SGD at learning rate \(10^{-2}\), 64 prompts × 8 completions per step, 128-step buffer with every batch at age 127, 2,400 steps, 3 seeds. Top: training accuracy, 50-step trailing mean. Bottom: validation accuracy every 50 steps.</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <h2 id="sec5"><span class="n">5</span><span>Combining With The KL Penalty</span></h2>
+    <div><p>Since the KL mask alone already stabilizes training, can it be stacked with Yihua's KL penalty from earlier? Recall the design principle: both depend only on the state, not on the sampled token, so stacking them does not bring the drift back, which is why we combine them into a recipe. In full, the recipe maximizes, per token,
+\[
+\mathbb{1}\big[d(s)\le\tau\big]\,\Big(\mathcal{L}_{\mathrm{SC}} \;-\; \beta_{\mathrm{a}}\,D_{\mathrm{KL}}\big(\mu(\cdot\mid s)\,\|\,\pi(\cdot\mid s)\big)\Big),\qquad \beta_{\mathrm{a}} = \frac{\beta_0}{\sqrt{\mathrm{a}}} ,
+\]
+that is, at positions where \(d(s)\) exceeds the threshold, both the policy term and the KL term are dropped. We compare this recipe with the baselines in three settings with a 128-step buffer: greedy, and random sampling at two learning rates.</p></div>
+    <ul class="points">
+      <li><span><b>With the KL penalty, training is stable.</b> At learning rate \(4\times10^{-2}\), TIS + SC starts to swing and MIS + SC and DPPO collapse outright, while with the KL penalty, with or without the mask, every seed trains.</span></li>
+      <li><span><b>The mask speeds up early learning.</b> Also at \(4\times10^{-2}\), <u>with the penalty alone the accuracy first drops and then slowly climbs back, while with the mask it rises from the start.</u> Why? Early in training the reward signal is still weak, while \(\beta_{\mathrm{a}} = \beta_0/\sqrt{\mathrm{a}}\) is largest at small age, so on states where \(\mu\) and \(\pi\) already differ a lot, the KL term pulls the trainer back toward a sampler that is itself still poor, and this pull can outweigh the signal. The mask removes exactly these states from the update: the pull and the off-policy gradient go away together, and what is left is the signal on states where \(\mu \approx \pi\), so accuracy goes up from the start.</span></li>
+    </ul>
+  </div>
+
+  <figure id="fig7">
+    <div class="img"><img src="fig/fig8_recipe.svg" alt="Training and validation curves over 1,200 steps in three settings with a 128-step buffer. The recipe and SC plus KL penalty rise smoothly in all three; TIS plus SC and MIS plus SC dip sharply under greedy sampling and at the higher learning rate; DPPO collapses under greedy sampling and at the higher learning rate."></div>
+    <figcaption><span><b>Figure 7. The recipe against the baselines with a 128-step buffer.</b> Setup as in Figure 5, with a 128-step buffer. Columns: greedy at learning rate \(10^{-2}\), random at \(10^{-2}\), and random at \(4\times10^{-2}\) (3 seeds, band = range across seeds). Top: training accuracy, 50-step trailing mean. Bottom: validation accuracy every 50 steps. Recipe: SC + KL penalty + KL mask, \(\tau = 0.3\) in the first two columns and \(0.1\) in the third.</span></figcaption>
+  </figure>
+
+  <figure id="fig8">
+    <div class="img"><img src="fig/fig9_recipe_bars.svg" alt="Summary bars for the three 128-step settings. Top: final training accuracy; recipe 0.688, 0.703 and 0.707, 0.735; SC plus KL penalty 0.690, 0.716, 0.751; TIS plus SC 0.593, 0.691, unstable; MIS plus SC 0.666, 0.680, collapsed; DPPO collapsed, 0.700, collapsed. Bottom: steps to reach 0.6."></div>
+    <figcaption><span><b>Figure 8. Summary of the runs in Figure 7.</b> Top: mean training accuracy over the last 50 steps. Bottom: first step at which the 50-step trailing mean reaches 0.6. Third column: mean over seeds.</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <h2 id="sec6"><span class="n">6</span><span>Beyond The Algorithm: Design Space And Free Lunches In The System</span></h2>
+    <div><p>Beyond the algorithm, async RL as a system leaves a lot of design space, and some free lunches. Let us first walk through it at the system level.</p>
+    <p>In short, async RL is a set of decoupled samplers and a trainer that talk through a buffer. The sampler \(\mu\) generates trajectories with its current weights and puts them into the buffer; the trainer \(\pi\) picks a batch from the buffer by some rule and takes an optimizer step. Concretely, if a trajectory reaches the trainer at step \(k\) and was sampled by \(\mu = \pi_{\theta_{k-\mathrm{a}}}\), then \(\mathrm{a}\) is its <b>policy age</b>. The trainer is then computing gradients on data from an older policy.</p></div>
+  </div>
+
+  <figure id="fig9">
+    <div class="img"><img src="fig/fig1_async_pipeline.svg" alt="The trainer-sampler loop: six samplers send finished groups to a rollout buffer, the trainer takes 64 groups per step, greedily or at random, groups older than K are dropped, and new weights are pushed to the samplers after every step."></div>
+    <figcaption><span><b>Figure 9. The trainer–sampler loop of async RL.</b> Six vLLM samplers generate continuously and put each finished group, tagged with the weight version \(v\) that produced it, into the buffer. Each step the trainer takes 64 groups, takes one step and pushes the new weights to the samplers; groups older than \(K\) are dropped. A group generated with \(\theta_v\) and trained at step \(k\) has age \(\mathrm{a} = k - v\).</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <div><p>Note that even without touching the loss or the policy gradient, once the rollout buffer holds enough trajectories, simply changing how the trainer samples minibatches from it can change training outcomes. This point gets very little attention in the literature.</p>
+    <p>For example, the setting used in the original SC paper (staleness 64) does not use a buffer at all. The trainer and the sampler instead synchronize every 64 steps, so the age of each minibatch update is not uniform but follows a sawtooth.</p></div>
+    <div><p>Back to buffer-based sampling. A common small mechanism is a threshold \(K\) on the buffer that dynamically evicts trajectories that are too old (\(\mathrm{a} > K\)), to avoid an overly large gradient mismatch. On top of that, the possible strategies come down to the following three. There is also room for extra knobs, which we skip here.</p>
+    <p><b>First in, first out (FIFO)</b>: take older trajectories first. It comes in a strict and a non-strict form, depending on whether it skips rollouts in the buffer that have not finished yet; we call the non-strict form greedy. As far as we know, many async RL systems use FIFO or a variant of it. Its advantage is that it wastes as little inference as possible. Its obvious drawback is that every update is built around older trajectories and actively ignores the newer ones in the buffer.</p>
+    <p><b>Last in, first out (LIFO)</b>: take newer trajectories first, the opposite of FIFO. Its advantage is very low staleness, but its drawback is fatal: it is biased against long trajectories, which then rarely make it into a trainer update, so almost no async RL recipe uses it.</p>
+    <p><b>Random sampling (RS)</b>: the plainest, uniform random sampling. Its advantage is that it picks up some newer trajectories without biasing against older ones as strongly as LIFO does. As far as we know, some people use variants of it, and for different workloads it is natural to add a knob here to balance staleness against long-trajectory bias. As we show later, without SC, RS also runs into trouble that hurts its stability.</p></div>
+  </div>
+
+  <figure id="fig10">
+    <div class="img"><img src="fig/fig2_batch_age.svg" alt="Four panels of batch policy age against training step: a 0 to 64 sawtooth for staleness 64; greedy with a 128-step buffer, climbing to 127 and staying there; LIFO, climbing to 46 and then holding at 3 from step 53; random with mean settling near 52 and max near 127."></div>
+    <figcaption><span><b>Figure 10. Policy age of the training batch under each strategy.</b> Staleness 64 follows from the sync schedule. The three \(K = 128\) panels are measured on the SC + KL penalty runs (setup as in Figure 5); for random sampling, the mean (10-step smoothing) and the maximum are shown.</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <div><p>Of the three strategies above, LIFO has the lowest staleness, but its bias against long trajectories is fatal and almost no one uses it. So is it worth switching between the two most common ones, greedy and RS? We compare greedy and RS on the same 128-step buffer, with no prefill on either side. RS has an obvious cost: some groups exceed age \(K\) and are dropped before they are ever drawn, so we pay compute for generations that are never trained on. Fortunately, over 1,200 steps RS spends only 4% to 7% more FLOPs, because training itself dominates the compute. For a fair comparison, the figure below uses actual training time as the x-axis.</p></div>
+  </div>
+
+  <figure id="fig11">
+    <div class="img"><img src="fig/fig10_greedy_random_steps.svg" alt="Training and validation accuracy against wall-clock hours for four methods, greedy against random sampling from a 128-step buffer. Random is at or above greedy everywhere."></div>
+    <figcaption><span><b>Figure 11. Greedy (FIFO) against random sampling, against training time.</b> Setup as in Figure 5, 128-step buffer, no prefill. Top: training accuracy (faint: per step; bold: 50-step trailing mean). Bottom: validation accuracy.</span></figcaption>
+  </figure>
+
+  <div class="col">
+    <div><p>The result: at the same training time, RS is better for every method. TIS + SC and MIS + SC drop sharply under greedy but not under RS, and DPPO collapses outright under greedy. Of course, this comparison mixes two effects, because RS also lowers the mean age from 127 to 52. It is also worth noting, as said earlier, that without SC RS cannot save training either: plain PG collapses under both strategies.</p>
+    <p>The reason RS works so well is also simple: smaller staleness means a smaller gap between \(\pi\) and \(\mu\), which fits exactly the methodology we proposed for improving recipes on top of SC.</p>
+    <p>One more point: if RS is this good, can we use it without SC? The answer is not so certain. Recall that without SC, old trajectories have a larger norm and more influence. Under greedy, the grad norms within an optimizer minibatch are all similar, so the gradient itself is fairly stable; under RS the effective batch size shrinks, which makes stability worse.</p>
+    <p>Of course, a good buffer strategy for async RL is far from as simple as shown here, and RS is not a universal solution. But we hope this discussion of SC and async RL draws more attention to these open problems, such as the bias from long trajectories, the remaining effect of staleness under SC, and the extra rollout cost. Going further, how to strike a better trade-off among staleness, cost and bias remains a research direction worth exploring in depth.</p></div>
+    <h2 id="sec7"><span class="n">7</span><span>Conclusion</span></h2>
+    <ol class="points">
+      <li><span>We showed visually what SC actually fixes: the drift term that grows with age and lets old trajectories dominate the update.</span></li>
+      <li><span>We discussed what kind of improvement fits the methodology of SC: start from the gap between \(\mu\) and \(\pi\), and depend only on the state.</span></li>
+      <li><span>We proposed two methods that mitigate what SC leaves unsolved in async RL, the gap between \(\mu\) and \(\pi\): the <b>state-level KL mask</b>, and a new knob, the <b>buffer sampling strategy</b>.</span></li>
+    </ol>
+    <h2 id="backh"><span>Acknowledgements</span></h2>
+    <div><p>We thank <a href="https://modal.com">Modal</a> for providing GPUs, and Joseph Gonzalez for his advice.</p></div>
+    <h2 id="brefh"><span>References</span></h2>
+    <div><ol class="refs"><li>Martin Marek and Max Ryabinin. <a href="https://arxiv.org/abs/2609.20807">Score Centering Stabilizes Off-policy Reinforcement Learning</a>. arXiv:2609.20807, 2026.</li><li>Shu Liu, Qi Fang and Shubham Agarwal. <a href="https://rl-cookbook.github.io/sc-drift-and-distance/">Drift and Distance: When Is Score Centering Enough in Async RL?</a> Blog post, 2026.</li><li>Yihua Zhang. <a href="https://normaluhr.github.io/en/p/score-function-centering/">Score Function Centering Made Simple: Understanding Trainer-Generator Mismatch in Async RL from the Score Function</a>. Blog post, 2026.</li><li>Yihua Zhang. <a href="https://normaluhr.github.io/en/p/score-function-centering-kl/">Score Function Centering: Why a Stale Rollout Does Not Have to Be Importance Sampled</a>. Blog post, 2026.</li><li>Yichuan Wang. <a href="https://yichuan-w.github.io/asset/talks/rl-reinforce-to-score-centering.html">From REINFORCE to Score Centering</a>. Talk slides, 2026.</li><li>Feng Yao, Liyuan Liu, Dinghuai Zhang, Chengyu Dong, Jingbo Shang and Jianfeng Gao. <a href="https://fengyao.notion.site/off-policy-rl">Your Efficient RL Framework Secretly Brings You Off-Policy RL Training</a>. Blog post, 2025.</li><li>Jiacai Liu, Yingru Li et al. <a href="https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda">When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch</a>. Blog post, 2025.</li><li>Penghui Qi et al. <a href="https://arxiv.org/abs/2602.04879">Rethinking the Trust Region in LLM Reinforcement Learning</a>. ICML 2026. arXiv:2602.04879.</li><li>Kanishk Gandhi et al. <a href="https://arxiv.org/abs/2404.03683">Stream of Search (SoS): Learning to Search in Language</a>. arXiv:2404.03683, 2024.</li></ol></div>
+  </div>
+
+</article>
+
+</body>
+</html>
