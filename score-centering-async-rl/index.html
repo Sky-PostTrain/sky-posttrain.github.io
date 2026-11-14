@@ -85,10 +85,13 @@
   .langbtn:hover { border-color: var(--accent); color: var(--accent); }
   .topbar .right { display: flex; align-items: center; gap: 14px; margin-left: auto; }
   .byline { margin: 4px 0 26px; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
-  .byline .authors { display: block; font-weight: 600; color: var(--ink); }
+  .byline .authors { display: block; font-size: 20px; font-weight: 600; color: var(--ink); }
   .byline .aff { display: block; font-size: 14.5px; color: var(--muted); }
   .byline sup { font-size: .7em; } .byline a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--rule); } .byline a:hover { color: var(--accent); }
   ol.refs { padding-left: 24px; margin: 0 0 16px; font-size: 15.5px; line-height: 1.55; color: var(--ink-2); } ol.refs li { margin-bottom: 8px; }
+  .titlebox { display: flex; justify-content: space-between; align-items: flex-start; gap: 28px; }
+  .titlebox .logo { flex: none; height: 52px; width: auto; margin-top: 6px; }
+  @media (max-width: 560px) { .titlebox .logo { height: 32px; margin-top: 4px; } }
 </style>
 </head>
 <body>
@@ -100,7 +103,7 @@
 
 <article class="wrap">
   <div class="col">
-    <h1><span>Beyond Score Centering:<br>What Else Can We Optimize In Async RL?</span></h1>
+    <div class="titlebox"><h1><span>Beyond Score Centering:<br>What Else Can We Optimize In Async RL?</span></h1><img class="logo" src="fig/berkeley.svg" alt="UC Berkeley"></div>
     <p class="byline"><span class="authors"><a href="https://joyemang33.github.io">Qiuyang Mang</a><sup>*</sup>, <a href="https://yichuan-w.github.io">Yichuan Wang</a><sup>*</sup></span><span class="aff"><sup>*</sup>Equal contribution · UC Berkeley</span></p>
     <div class="dek"><div><a href="https://arxiv.org/abs/2609.20807">Score centering (SC)</a> has recently drawn wide attention in LLM RL. In async RL the sampler and the trainer hold different weights, so the trajectories the trainer learns from often come from a policy several steps old, which easily makes training unstable. SC's fix is simple: subtract from each token's score its expectation under the sampler, which cancels the drift that the old policy brings in. This post uses experiments to explain the core idea of SC and how it works. Beyond SC itself and the tricks widely discussed alongside it, we follow the same idea to revisit other key components of async RL and make training more stable and efficient. At the end we present two findings that, with SC and the KL penalty on, further improve training quality and stability markedly: (1) replacing the mask based on token-level probability ratios with a mask based on state-level KL divergence; (2) switching how the trainer draws trajectories from the buffer from greedy to random sampling.</div></div>
     <div><p>First, some notation. In async RL the sampler \(\mu\) and the trainer \(\pi\) are decoupled: the sampler generates trajectories with the weights it holds, and the trainer takes optimizer steps on that data while it keeps updating. If a trajectory reaches the trainer at step \(k\) and was sampled by \(\mu = \pi_{\theta_{k-\mathrm{a}}}\), we say its policy age is \(\mathrm{a}\), i.e. the trainer is now computing gradients on data from a policy \(\mathrm{a}\) steps old.</p></div>
