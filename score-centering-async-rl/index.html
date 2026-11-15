@@ -49,9 +49,14 @@
   figure { max-width: 880px; margin: 40px auto 44px; }
   figure { position: relative; scroll-margin-top: 24px; }
   .side { display: block; font-size: 14.5px; line-height: 1.5; color: var(--muted); margin: 0 0 10px; padding-left: 12px; border-left: 2px solid var(--rule); }
+  p.has-side { position: relative; }
+  .side-r { margin: 12px 0 0; }
   @media (min-width: 1400px) {
     .side { position: absolute; top: 40px; right: calc(100% + 36px); width: 210px; margin: 0; padding: 10px 0 0; border-left: 0; border-top: 1px solid var(--rule); text-align: left; }
     .side::after { content: ""; position: absolute; top: -1px; left: 100%; width: 36px; border-top: 1px solid var(--rule); }
+    /* Right-margin note: no top/bottom, so it sits at the line where it appears in the text. */
+    .side.side-r { display: inline; top: auto; right: auto; left: calc(100% + 36px); margin-top: 6px; }
+    .side.side-r::after { left: auto; right: 100%; }
   }
   figure .img { overflow-x: auto; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding-block: 18px; }
   figure img { display: block; width: 100%; min-width: 600px; height: auto; }
@@ -183,7 +188,7 @@ This does nothing to shrink the gap between \(p\) and \(q\); it introduces a new
 \mathbb{E}_{a\sim\mu}\Big[\tfrac{p(a)}{q(a)}\,A\,(e_a - p)\Big] = \mathbb{E}_{a\sim\pi}\big[A\,(e_a - p)\big],
 \]
 so SC does nothing: what it subtracts already has zero expectation under \(\pi\).</p>
-    <p>With truncation, write the post-IS weight as \(w(a) = f\big(p(a)/q(a)\big)\). SC is then effectively applied on a new distribution
+    <p class="has-side">With truncation, write the post-IS weight as \(w(a) = f\big(p(a)/q(a)\big)\). SC is then effectively applied on a new distribution
 \[
 \nu(a) = \frac{w(a)\,q(a)}{Z},\qquad Z = \sum_{a} w(a)\,q(a),
 \]
@@ -191,7 +196,7 @@ where \(f(\cdot)\) is the processing after IS, such as the truncation in the pap
 \[
 \mathbb{E}_{a\sim\mu}\big[w(a)\,A\,(e_a - \nu)\big] = Z\,\mathrm{Cov}_\nu(A,\, e_a).
 \]
-Clearly, there is no guarantee whether this new distribution or the plain \(\mu\) is closer to the target \(\pi\). It is a rather ill-defined operation.</p></div>
+Clearly, there is no guarantee whether this new distribution or the plain \(\mu\) is closer to the target \(\pi\). It is a rather ill-defined operation.<span class="side side-r">So the reading in the SC paper that IS and SC are orthogonal, and can simply be stacked, is not right: neither SC followed by IS nor IS followed by SC gives a well-defined correction. See <a href="https://yichuan-w.github.io/asset/talks/rl-reinforce-to-score-centering.html#26">these slides</a> for details.</span></p></div>
     <div><p>So what is a good method? <a href="https://normaluhr.github.io/en/p/score-function-centering-kl/">Yihua's blog</a> has one that follows this design principle:
 \[
 \mathcal{L}_{\mathrm{SC}} \;-\; \beta_{\mathrm{a}}\,D_{\mathrm{KL}}(\mu\,\|\,\pi),\qquad \beta_{\mathrm{a}} = \frac{\beta_0}{\sqrt{\mathrm{a}}} ,
