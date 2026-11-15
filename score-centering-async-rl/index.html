@@ -201,7 +201,7 @@ Clearly, there is no guarantee whether this new distribution or the plain \(\mu\
 \[
 \mathcal{L}_{\mathrm{SC}} \;-\; \beta_{\mathrm{a}}\,D_{\mathrm{KL}}(\mu\,\|\,\pi),\qquad \beta_{\mathrm{a}} = \frac{\beta_0}{\sqrt{\mathrm{a}}} ,
 \]
-where \(\mathcal{L}_{\mathrm{SC}}\) is the objective after SC. It first removes the whole drift term with SC, then explicitly adds back a KL penalty that pulls the trainer toward the sampler that generated each token. This shrinks the gap between the two distributions and, with it, the bias of the policy gradient after SC.</p>
+where \(\mathcal{L}_{\mathrm{SC}}\) is the objective after SC. It first removes the whole drift term with SC, then explicitly adds back a KL penalty that pulls the trainer toward the sampler that generated each token. This shrinks the gap between the two distributions and, with it, the bias of the policy gradient after SC. Earlier work has also explored such a penalty: <a href="https://arxiv.org/abs/2501.15034">Divergence-Augmented Policy Optimization</a> adds a divergence between the behavior policy and the current policy to keep off-policy updates small and safe.</p>
     <p>Note that, unlike the implicit \(-A\,D_{\mathrm{KL}}(\mu\|\pi)\) in PG, the coefficient here is always positive and independent of the advantage. It is a controllable knob that helps us reduce the discrepancy caused by the difference between the two distributions.</p>
     <p>One more point: why give the new KL penalty a mysterious coefficient proportional to \(\frac{1}{\sqrt{\mathrm{a}}}\)? Recall that the gradient of the KL penalty is troublesome because it gives trajectories of different ages an unbalanced influence on the batch. If every update step were fully independent, the norm of the KL term would grow as \(\sqrt{\mathrm{a}}\). Later in training, however, consecutive updates point in more and more consistent directions: the gap between an old policy and the current one looks more like steps stacking up along one line, and the norm grows closer to \(\mathrm{a}\) (Figure 3). So \(\beta_{\mathrm{a}}\) can decay over the course of training,
 \[
@@ -236,8 +236,7 @@ whereas \(d(s)\) depends only on the state,
 \[
 \mathbb{E}_{a\sim\mu}\Big[\mathbb{1}\big[d(s)\le\tau\big]\,c\,(e_a - q)\Big] = \mathbb{1}\big[d(s)\le\tau\big]\,c\,(q - q) = 0 ,
 \]
-so the baseline property is fully preserved.</p>
-    <p>This idea is closely related to the masking line of work from Yingru Li and collaborators: the masked importance sampling in <a href="https://richardli.xyz/post/rl-collapse-training-inference/">When Speed Kills Stability</a>, which drops sequences whose training-inference mismatch is too large, and <a href="https://arxiv.org/abs/2512.23075">Trust Region Masking</a>, which turns such masks into a trust-region constraint for long-horizon LLM RL. The KL mask can be read as the same idea moved to the state level and measured on the full next-token distribution, so that the mask does not depend on the sampled token.</p></div>
+so the baseline property is fully preserved.</p></div>
     <div><p>With \(d(s)\) in hand, we now put the KL mask side by side with TIS and MIS. First, what does the gradient profile look like with the KL mask? An interesting observation is that the KL mask does not know the age of each trajectory, yet the older a trajectory, the larger the gap between \(\mu\) and \(\pi\), the more easily \(d(s)\) exceeds the threshold, and so the more positions get masked. So without any help from IS, the KL mask flattens the profile: at \(\tau = 0.3\) it is even flatter than TIS + SC, and at \(\tau = 0.1\) the trend reverses and the influence of very old trajectories is weakened, which is exactly the effect we said one might want in some settings.</p></div>
   </div>
 
@@ -267,7 +266,7 @@ so the baseline property is fully preserved.</p>
 
   <div class="col">
     <h2 id="sec5"><span class="n">5</span><span>Combining With The KL Penalty</span></h2>
-    <div><p>Since the KL mask alone already stabilizes training, can it be stacked with Yihua's KL penalty from earlier? Penalizing the divergence between the behavior policy and the current policy to keep off-policy updates safe also goes back to earlier work such as <a href="https://arxiv.org/abs/2501.15034">Divergence-Augmented Policy Optimization</a>. Recall the design principle: both depend only on the state, not on the sampled token, so stacking them does not bring the drift back, which is why we combine them into a recipe. In full, the recipe maximizes, per token,
+    <div><p>Since the KL mask alone already stabilizes training, can it be stacked with Yihua's KL penalty from earlier? Recall the design principle: both depend only on the state, not on the sampled token, so stacking them does not bring the drift back, which is why we combine them into a recipe. In full, the recipe maximizes, per token,
 \[
 \mathbb{1}\big[d(s)\le\tau\big]\,\Big(\mathcal{L}_{\mathrm{SC}} \;-\; \beta_{\mathrm{a}}\,D_{\mathrm{KL}}\big(\mu(\cdot\mid s)\,\|\,\pi(\cdot\mid s)\big)\Big),\qquad \beta_{\mathrm{a}} = \frac{\beta_0}{\sqrt{\mathrm{a}}} ,
 \]
